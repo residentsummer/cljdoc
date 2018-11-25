@@ -2,6 +2,7 @@
   (:require [cljdoc.analysis.service :as analysis-service]
             [cljdoc.config :as cfg]
             [cljdoc.server.release-monitor]
+            [cljdoc.server.clojars-stats]
             [cljdoc.server.pedestal]
             [cljdoc.server.build-log :as build-log]
             [cljdoc.storage.api :as storage]
@@ -12,7 +13,8 @@
             [integrant.core :as ig]
             [unilog.config :as unilog]
             [ragtime.jdbc :as jdbc]
-            [ragtime.core :as ragtime]))
+            [ragtime.core :as ragtime]
+            [tea-time.core :as tt]))
 
 (unilog/start-logging!
  {:level   :info
@@ -24,10 +26,13 @@
 (defn system-config [env-config]
   (let [ana-service (cfg/analysis-service env-config)
         port        (cfg/get-in env-config [:cljdoc/server :port])]
-    {:cljdoc/sqlite          {:db-spec (cfg/db env-config)
+    {:cljdoc/tea-time        {}
+     :cljdoc/sqlite          {:db-spec (cfg/db env-config)
                               :dir     (cfg/data-dir env-config)}
      :cljdoc/release-monitor {:db-spec  (ig/ref :cljdoc/sqlite)
                               :dry-run? (not (cfg/autobuild-clojars-releases? env-config))}
+     :cljdoc/clojars-stats   {:db-spec (ig/ref :cljdoc/sqlite)
+                              :retention-days 380}
      :cljdoc/pedestal {:port             (cfg/get-in env-config [:cljdoc/server :port])
                        :host             (get-in env-config [:cljdoc/server :host])
                        :build-tracker    (ig/ref :cljdoc/build-tracker)
@@ -49,6 +54,14 @@
 (defmethod ig/init-key :cljdoc/storage [k {:keys [db-spec]}]
   (log/info "Starting" k)
   (storage/->SQLiteStorage db-spec))
+
+(defmethod ig/init-key :cljdoc/tea-time [k _]
+  (log/info "Starting" k)
+  (tt/start!))
+
+(defmethod ig/halt-key! :cljdoc/tea-time [k _]
+  (log/info "Starting" k)
+  (tt/stop!))
 
 (defmethod ig/init-key :cljdoc/build-tracker [k {:keys [db-spec]}]
   (log/info "Starting" k)
